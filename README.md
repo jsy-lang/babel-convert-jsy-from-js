@@ -15,10 +15,10 @@ Currently (2017-Dec-01) it converts function/method definitions and if/while/for
 
 ```bash
 $ npm install --save-dev babel-convert-jsy-from-js
-$ cat example/node_about_example.js
+$ cat node_about_example.js
 ```
 
-###### example/node_about_example.js
+###### node_about_example.js
 
 ```javascript
 const http = require('http');
@@ -40,7 +40,7 @@ server.listen(port, hostname, () => {
 ##### Convert to JSY from JS
 
 ```bash
-$ npx jsy-from-js example/example/node_about_example.js
+$ npx jsy-from-js node_about_example.js
 ```
 
 ###### jsy output:
