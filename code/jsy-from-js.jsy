@@ -1,0 +1,28 @@
+#!/usr/bin/env node
+const fs = require('fs')
+import JSYGenerator from './index'
+
+function js_to_jsy(filename) ::
+  return new Promise @ (resolve, reject) =>
+    fs.readFile @ filename, 'utf-8', (err, code) => ::
+      if err :: return reject(err)
+      resolve @ JSYGenerator.generate @ code
+
+
+async function main(argv=process.argv) ::
+  try ::
+    if argv.length < 2 ::
+      console.error @ `Provide a javascript source filename to convert`
+      process.exit(1)
+
+    const filename = argv.slice(-1).pop()
+
+    const {code} = await js_to_jsy @ filename
+    console.log @ code
+
+  catch err ::
+    console.error @ err
+    process.exit(1)
+
+if module === require.main ::
+  main @ process.argv

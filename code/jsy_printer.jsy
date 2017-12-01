@@ -1,0 +1,242 @@
+import {parse as babylon_parse} from 'babylon'
+import * as t from 'babel-types'
+import Printer from 'babel-generator/lib/printer'
+
+
+const getLastStatement = node =>
+  t.isStatement(node.body) ? node
+    : getLastStatement @ node.body
+
+const getFirstStatement = node =>
+  t.isStatement(node.body) ? node
+    : getFirstStatement @ node.body
+
+const hasTypes = (node, param) =>
+  node.typeParameters || node.returnType || param.typeAnnotation || param.optional || param.trailingComments
+
+
+export default class JSYPrinter extends Printer ::
+  jsy_keyword(kw, skipNewline) ::
+    if ! skipNewline && ! this.endsWith('\n') ::
+      this.newline()
+    return this.word(kw)
+
+  jsy_block_indent() ::
+    this.space()
+    this.token('::')
+    this.newline()
+    this.indent()
+
+  jsy_block_dedent() ::
+    this.dedent()
+    this.newline()
+
+  jsy_endsWith(str) ::
+    if this.endsWith(str) :: return true
+    const [last] = this._buf._buf.slice(-1)
+    return str == last
+
+
+  BlockStatement(node) ::
+    if ! this.jsy_endsWith('::') ::
+      return super.BlockStatement(node)
+
+    this.printInnerComments(node)
+
+    if node.directives && node.directives.length ::
+      this.printSequence @ node.directives, node, @{} indent: false
+      this.newline()
+
+    this.printSequence @ node.body, node, @{} indent: false
+    this.removeTrailingNewline()
+
+    this.source @ 'end', node.loc
+
+
+  IfStatement(node) ::
+    this.jsy_keyword @ 'if', this.jsy_endsWith('else')
+    this.space()
+    this.print @ node.test, node
+    this.jsy_block_indent()
+
+    this.print @ node.consequent, node
+
+    this.jsy_block_dedent()
+
+    if node.alternate ::
+      this.jsy_keyword('else')
+
+      if t.isIfStatement @ node.alternate ::
+        this.space()
+        this.print @ node.alternate, node
+
+      else ::
+        this.jsy_block_indent()
+        this.print @ node.alternate, node
+        this.jsy_block_dedent()
+
+
+  WhileStatement(node) ::
+    this.jsy_keyword('while')
+    this.space()
+    this.print(node.test, node)
+    this.jsy_block_indent()
+    this.printBlock(node)
+    this.jsy_block_dedent()
+
+
+  ForStatement(node) ::
+    this.jsy_keyword('for')
+    this.space()
+
+    this.inForStatementInitCounter++
+    this.print(node.init, node)
+    this.inForStatementInitCounter--
+    this.token('')
+
+    if (node.test) ::
+      this.space()
+      this.print(node.test, node)
+
+    this.token('')
+
+    if node.update ::
+      this.space()
+      this.print(node.update, node)
+
+    this.jsy_block_indent()
+    this.printBlock(node)
+    this.jsy_block_dedent()
+
+
+  ForInStatement(node) :: return this._adv_ForStatement('in', node)
+  ForOfStatement(node) :: return _adv_ForStatement('of', node)
+  ForAwaitStatement(node) :: return _adv_ForStatement('await', node)
+  _adv_ForStatement(op, node) ::
+    this.jsy_keyword('for')
+    this.space()
+
+    if op === 'await' ::
+      op = 'of'
+      this.word('await')
+      this.space()
+
+    this.print(node.left, node)
+    this.space()
+    this.word(op)
+    this.space()
+    this.print(node.right, node)
+
+    this.jsy_block_indent()
+    this.printBlock(node)
+    this.jsy_block_dedent()
+
+
+  TryStatement(node) ::
+    this.jsy_keyword('try')
+    this.jsy_block_indent()
+    this.print(node.block, node)
+    this.jsy_block_dedent()
+
+    if node.handlers ::
+      this.print(node.handlers[0], node)
+    else ::
+      this.print(node.handler, node)
+
+    if node.finalizer ::
+      this.jsy_keyword('finally')
+      this.jsy_block_indent()
+      this.print(node.finalizer, node)
+      this.jsy_block_dedent()
+
+  CatchClause(node) ::
+    this.jsy_keyword('catch')
+    this.space()
+    this.print(node.param, node)
+
+    this.jsy_block_indent()
+    this.print(node.body, node)
+    this.jsy_block_dedent()
+
+
+  FunctionExpression(node) ::
+    if node.async ::
+      this.word("async")
+      this.space()
+
+    this.word("function")
+    if node.generator ::
+      this.token("*")
+
+    this.space()
+    if node.id ::
+      this.print(node.id, node)
+
+    this._params(node)
+
+    this.jsy_block_indent()
+    this.print(node.body, node)
+    this.jsy_block_dedent()
+
+  FunctionDeclaration(node) ::
+    return this.FunctionExpression(node)
+
+  ArrowFunctionExpression(node) ::
+    if node.async ::
+      this.word("async")
+      this.space()
+
+    const firstParam = node.params[0]
+
+    if node.params.length === 1 && t.isIdentifier(firstParam) && ! hasTypes(node, firstParam) ::
+      this.print(firstParam, node)
+    else this._params(node)
+
+    this.space()
+    this.token("=>")
+    this.space()
+
+    if t.isBlockStatement @ node.body ::
+      this.jsy_block_indent()
+      this.print(node.body, node)
+      this.jsy_block_dedent()
+    else ::
+      this.print(node.body, node)
+
+
+
+  ClassBody(node) ::
+    this.jsy_block_indent()
+    this.printInnerComments(node)
+    this.printSequence(node.body, node)
+    this.jsy_block_dedent()
+
+  _method(node) ::
+    const kind = node.kind
+    const key  = node.key
+
+    if kind === "method" || kind === "init" ::
+      if node.generator ::
+        this.token("*")
+
+    if kind === "get" || kind === "set" ::
+      this.word(kind)
+      this.space()
+
+    if node.async ::
+      this.word("async")
+      this.space()
+
+    if node.computed ::
+      this.token("[")
+      this.print(key, node)
+      this.token("]")
+    else ::
+      this.print(key, node)
+
+    this._params(node)
+    
+    this.jsy_block_indent()
+    this.print(node.body, node)
+    this.jsy_block_dedent()
+

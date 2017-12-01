@@ -1,0 +1,41 @@
+import {parse as babylon_parse} from 'babylon'
+import SourceMap from 'babel-generator/lib/source-map'
+import JSYPrinter from './jsy_printer'
+
+
+export default class JSYGenerator extends JSYPrinter ::
+  constructor(ast, opts={}, code) ::
+    if opts.sourceMaps || undefined == opts.sourceMaps ::
+      var srcmap = new SourceMap(opts, code)
+
+    const format = opts.jsy_format || jsy_format
+    super @ format, srcmap || null, ast.tokens
+    Object.defineProperties @ this, @{}
+      ast: @{} value: ast
+
+
+  generate() ::
+    return super.generate(this.ast);
+
+  static generate(code, opts) ::
+    const ast = babylon_parse @ code, @{}
+      allowReturnOutsideFunction: true
+
+    const gen = new JSYGenerator @ ast, opts, code
+    return gen.generate()
+
+
+const jsy_format = @{}
+  compact: false, minified: false
+  comments: true, shouldPrintComment: () => true
+  indent: @{} base: 0, style: '  '
+    adjustMultilineComment: true
+
+  quotes: "'"
+  jsonCompatibleStrings: false
+  concise: false
+  retainLines: false
+  retainFunctionParens: false
+
+JSYGenerator.jsy_format = jsy_format
+
