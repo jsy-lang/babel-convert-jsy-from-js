@@ -1,5 +1,6 @@
 import {parse as babylon_parse} from 'babylon'
 import * as t from 'babel-types'
+import * as n from 'babel-generator/lib/node'
 import Printer from 'babel-generator/lib/printer'
 
 
@@ -14,28 +15,75 @@ const getFirstStatement = node =>
 const hasTypes = (node, param) =>
   node.typeParameters || node.returnType || param.typeAnnotation || param.optional || param.trailingComments
 
+const isSimpleExpr = e =>
+  t.isLiteral(e) || t.isIdentifier(e) || t.isThisExpression(e)
+    || (t.isUnaryExpression(e) && t.isNumericLiteral(e.argument))
+
+const isSimplePropExpr = e =>
+  isSimpleExpr(e.key) && isSimpleExpr(e.value)
+
+const isSimpleCollectExpr = e =>
+  t.isObjectExpression(e)
+    ? e.properties.length <= 3 && e.properties.every @ isSimplePropExpr
+  : t.isArrayExpression(e)
+    ? e.elements.length <= 3 && e.elements.every @ isSimpleExpr
+  : false
+
+function jsy_arg_separator() ::
+  // if not optional commas ::
+  //   this.token(',')
+  this.newline()
+  if ! this.endsWith("\n") ::
+    this.space()
+
 
 export default class JSYPrinter extends Printer ::
   jsy_keyword(kw, skipNewline) ::
     if ! skipNewline && ! this.endsWith('\n') ::
       this.newline()
+    this.jsy_in_keyword = true
     return this.word(kw)
 
-  jsy_block_indent() ::
+  jsy_block_indent(offside_token='::') ::
+    this.jsy_in_keyword = false
     this.space()
-    this.token('::')
+    this.token(offside_token)
     this.newline()
     this.indent()
 
-  jsy_block_dedent() ::
+  jsy_block_dedent(add_newline=true) ::
     this.dedent()
-    this.newline()
+    if add_newline ::
+      this.newline()
 
   jsy_endsWith(str) ::
     if this.endsWith(str) :: return true
     const [last] = this._buf._buf.slice(-1)
     return str == last
 
+
+  semicolon() ::
+    // avoid semicolons
+    this._maybeAddAuxComment()
+    this._append('', true)
+  required_semicolon() ::
+    // avoid semicolons, except when they're required
+    super.semicolon()
+
+
+  ExpressionStatement(node) ::
+    const expr = node.expression
+    let semi_required = false
+    if t.isCallExpression(expr) ::
+      if ! t.isIdentifier(expr.callee) && ! t.isMemberExpression(expr.callee) ::
+        semi_required = true
+    else if t.isArrayExpression(expr) ::
+      semi_required = true
+
+    if semi_required ::
+      this.required_semicolon()
+      this.space()
+    this.print(node.expression, node)
 
   BlockStatement(node) ::
     if ! this.jsy_endsWith('::') ::
@@ -92,13 +140,13 @@ export default class JSYPrinter extends Printer ::
     this.inForStatementInitCounter++
     this.print(node.init, node)
     this.inForStatementInitCounter--
-    this.token('')
+    this.token('\x3b') // semicolon
 
     if (node.test) ::
       this.space()
       this.print(node.test, node)
 
-    this.token('')
+    this.token('\x3b') // semicolon
 
     if node.update ::
       this.space()
@@ -161,12 +209,12 @@ export default class JSYPrinter extends Printer ::
 
   FunctionExpression(node) ::
     if node.async ::
-      this.word("async")
+      this.word('async')
       this.space()
 
-    this.word("function")
+    this.word('function')
     if node.generator ::
-      this.token("*")
+      this.token('*')
 
     this.space()
     if node.id ::
@@ -183,7 +231,7 @@ export default class JSYPrinter extends Printer ::
 
   ArrowFunctionExpression(node) ::
     if node.async ::
-      this.word("async")
+      this.word('async')
       this.space()
 
     const firstParam = node.params[0]
@@ -193,7 +241,7 @@ export default class JSYPrinter extends Printer ::
     else this._params(node)
 
     this.space()
-    this.token("=>")
+    this.token('=>')
     this.space()
 
     if t.isBlockStatement @ node.body ::
@@ -215,22 +263,22 @@ export default class JSYPrinter extends Printer ::
     const kind = node.kind
     const key  = node.key
 
-    if kind === "method" || kind === "init" ::
+    if kind === 'method' || kind === 'init' ::
       if node.generator ::
-        this.token("*")
+        this.token('*')
 
-    if kind === "get" || kind === "set" ::
+    if kind === 'get' || kind === 'set' ::
       this.word(kind)
       this.space()
 
     if node.async ::
-      this.word("async")
+      this.word('async')
       this.space()
 
     if node.computed ::
-      this.token("[")
+      this.token('[')
       this.print(key, node)
-      this.token("]")
+      this.token(']')
     else ::
       this.print(key, node)
 
@@ -240,3 +288,162 @@ export default class JSYPrinter extends Printer ::
     this.print(node.body, node)
     this.jsy_block_dedent()
 
+
+  _is_complex_call_expr(node) ::
+    if 0 === node.arguments.length ::
+      return false
+    if node.arguments.every @ isSimpleExpr ::
+      return false
+    return true
+
+
+  indent_nodeset = new WeakSet()
+  _track_chain_call_expr(node) ::
+    if ! t.isMemberExpression(node.callee) ::
+      return false
+
+    const {indent_nodeset} = this
+    if indent_nodeset.has(node) || t.isCallExpression(node.callee.object) ::
+      indent_nodeset.add(node.callee)
+      indent_nodeset.add(node.callee.object)
+      return true
+
+    return false
+
+
+  CallExpression(node) ::
+    const is_chain_call = this._track_chain_call_expr(node)
+    if this.jsy_in_keyword ::
+      return super.CallExpression(node)
+    if ! this._is_complex_call_expr(node) ::
+      return super.CallExpression(node)
+
+    this.print(node.callee, node)
+
+    switch node.arguments.length ::
+      case 0: return this._callExpressionZeroArgs(node, is_chain_call)
+      case 1: return this._callExpressionOneArg(node, is_chain_call)
+      default: return this._callExpressionManyArgs(node, is_chain_call)
+
+  _callExpressionZeroArgs(node, is_chain_call) ::
+    this.token('(')
+    this.token(')')
+
+  _callExpressionOneArg(node, is_chain_call) ::
+    if is_chain_call :: this.indent()
+
+    // opportunity for @:, @#
+    const [a0] = node.arguments
+    if isSimpleCollectExpr(a0) ::
+      this.token('(')
+      this.print(a0, node)
+      this.token(')')
+      if is_chain_call ::
+        this.dedent()
+      return
+
+    if t.isArrayExpression(a0) ::
+      this.jsy_block_indent('@#')
+      this.indent_nodeset.add(a0)
+
+    else if t.isObjectExpression(a0) ::
+      this.jsy_block_indent('@:')
+      this.indent_nodeset.add(a0)
+
+    else ::
+      this.jsy_block_indent('@')
+
+    this.printList @ node.arguments, node
+    this.jsy_block_dedent(false)
+    if is_chain_call :: this.dedent()
+
+  _callExpressionManyArgs(node, is_chain_call) ::
+    if is_chain_call :: this.indent()
+
+    this.jsy_block_indent('@')
+    this.printList @
+      node.arguments, node
+      @{} separator: jsy_arg_separator
+
+    this.jsy_block_dedent(false)
+    if is_chain_call :: this.dedent()
+
+
+  MemberExpression(node) ::
+    const jsy_indented = this.indent_nodeset.has(node)
+
+    let computed = node.computed
+    this.print(node.object, node)
+
+    if ! computed ::
+      if t.isMemberExpression(node.property) ::
+        throw new TypeError("Got a MemberExpression for MemberExpression property")
+
+      if t.isLiteral(node.property) && typeof node.property.value === "number" ::
+        computed = true
+
+    if jsy_indented :: this.newline()
+    if jsy_indented :: this.indent()
+    if computed ::
+      this.token("[")
+      this.print(node.property, node)
+      this.token("]")
+    else ::
+      this.token(".")
+      this.print(node.property, node)
+    if jsy_indented :: this.dedent()
+
+
+  ObjectPattern(node) :: return this.ObjectExpression(node)
+  ObjectExpression(node) ::
+    const jsy_indented = this.indent_nodeset.has(node)
+    if ! jsy_indented ::
+      if isSimpleCollectExpr(node) ::
+        return super.ObjectExpression(node)
+
+      //this.token("{")
+      this.jsy_block_indent('@{}')
+
+    this.printInnerComments(node)
+    if node.properties.length ::
+      this.space()
+      this.printList @ node.properties, node, 
+        @{} separator: jsy_arg_separator
+      this.space()
+
+    if ! jsy_indented ::
+      // this.token("}")
+      this.jsy_block_dedent(false)
+
+  ArrayPattern(node) :: return this.ArrayExpression(node)
+  ArrayExpression(node) ::
+    const jsy_indented = this.indent_nodeset.has(node)
+    if ! jsy_indented ::
+      if isSimpleCollectExpr(node) ::
+        return super.ArrayExpression(node)
+
+      //this.token("[")
+      this.jsy_block_indent('@[]')
+
+    this.printInnerComments(node)
+    this.printList @ node.elements, node, 
+      @{} separator: jsy_arg_separator
+
+    if ! jsy_indented ::
+      // this.token("]")
+      this.jsy_block_dedent(false)
+
+
+function dbg_type_tree(node) ::
+  const res = @{} type: node.type
+  if t.isIdentifier(node) :: res.name = node.name
+  else if t.isLiteral(node) :: res.value = node.value
+  for const [k,v] of Object.entries(node) ::
+    if null != v && v.type ::
+      res[k] = dbg_type_tree(v)
+    else if Array.isArray(v) ::
+      res[k] = v.map @ e => dbg_type_tree(e)
+  return res
+function dbg_dir_type_tree(node) ::
+  console.dir @ dbg_type_tree(node), @{} colors: true, depth: null
+  return node
