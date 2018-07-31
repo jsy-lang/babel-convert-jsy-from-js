@@ -15,12 +15,12 @@
   ],
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/shanewholloway/babel-convert-jsy-from-js"
+    "url": "git+https://github.com/jsy-lang/babel-convert-jsy-from-js"
   },
   "bugs": {
-    "url": "https://github.com/shanewholloway/babel-convert-jsy-from-js/issues"
+    "url": "https://github.com/jsy-lang/babel-convert-jsy-from-js/issues"
   },
-  "homepage": "https://github.com/shanewholloway/babel-convert-jsy-from-js#readme",
+  "homepage": "https://github.com/jsy-lang/babel-convert-jsy-from-js#readme",
   "files": [
     "code",
     "dist"
