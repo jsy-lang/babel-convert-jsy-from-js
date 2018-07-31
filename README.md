@@ -1,7 +1,7 @@
 # babel-convert-jsy-from-js
 Convert JavaScript, Babel or Babylon AST into offside indented JSY formatted source code.
 
-Plese see [JSY language docs](https://github.com/jsy-lang/jsy-lang-docs) for details on the JSY dialect.
+Please see [JSY language docs](https://github.com/jsy-lang/jsy-lang-docs) for details on the JSY dialect.
 
 ### Use
 
